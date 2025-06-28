@@ -1,5 +1,7 @@
 # YouTube Play All
 
+Site deployed with Vercel: https://youtube-play-all.vercel.app/
+
 ## About
 
 A simple web application that generates a playlist URL to play all videos from any YouTube channel. This tool automatically converts YouTube channel URLs into playlist links that contain all uploaded videos from that channel.
@@ -32,5 +34,3 @@ The app uses a technique discovered on Reddit that converts YouTube channel IDs 
 <img src="./src/assets/yt-play-all-img3.png" alt="Generated Playlist Result" width="600"/>
 
 </div>
-
-Site deployed with Vercel: https://youtube-play-all.vercel.app/

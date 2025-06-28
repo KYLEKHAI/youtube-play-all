@@ -32,3 +32,5 @@ The app uses a technique discovered on Reddit that converts YouTube channel IDs 
 <img src="./src/assets/yt-play-all-img3.png" alt="Generated Playlist Result" width="600"/>
 
 </div>
+
+Site deployed with Vercel: https://youtube-play-all.vercel.app/

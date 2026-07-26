@@ -25,6 +25,8 @@ The app uses a technique discovered on Reddit that converts YouTube channel IDs 
 2. Converts it to a playlist ID by changing `UC` to `UU`
 3. Generates a playlist URL: `https://www.youtube.com/playlist?list=UUxxxxxxxxxxxxxxxxxx`
 
+<strong>2026 update:</strong> Added a faster same-origin channel resolver for usernames, @handles, and channel URLs, avoiding slow public CORS proxy lookups in most cases. <em>In other words, just typing the channel name is now instant :)<em>
+
 ## Screenshots
 
 <div align="center">

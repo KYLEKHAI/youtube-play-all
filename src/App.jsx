@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Copy,
   ExternalLink,
   RotateCcw,
-  AlertCircle,
   Sun,
   Moon,
   Github,
+  X,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import "./App.css";
@@ -16,6 +16,7 @@ function App() {
   const [playlistUrl, setPlaylistUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const extractionControllerRef = useRef(null);
 
   // Local storage for theme
   useEffect(() => {
@@ -38,6 +39,12 @@ function App() {
     );
   }, [isDarkMode]);
 
+  useEffect(() => {
+    return () => {
+      extractionControllerRef.current?.abort();
+    };
+  }, []);
+
   // Light/Dark toggle
   const toggleTheme = () => {
     const newTheme = !isDarkMode;
@@ -47,43 +54,6 @@ function App() {
     localStorage.setItem("youtube-play-all-theme", newTheme ? "dark" : "light");
 
     toast.success(`Switched to ${newTheme ? "dark" : "light"} mode`);
-  };
-
-  // Method to extract channel ID from @username by checking redirects
-  const tryDirectHandleMethod = async (username) => {
-    try {
-      console.log(`Trying direct handle method for: ${username}`);
-      const handleUrl = `https://www.youtube.com/@${username}`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(
-        handleUrl
-      )}`;
-
-      const response = await fetch(proxyUrl);
-      const html = await response.text();
-
-      console.log(`Handle method response length: ${html.length}`);
-
-      // Look for the channel ID in the response
-      const patterns = [
-        /"channelId":"(UC[a-zA-Z0-9_-]{22})"/,
-        /"externalId":"(UC[a-zA-Z0-9_-]{22})"/,
-        /channel\/(UC[a-zA-Z0-9_-]{22})/,
-        /"browseId":"(UC[a-zA-Z0-9_-]{22})"/,
-      ];
-
-      for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match) {
-          console.log(`Direct handle method found channel ID: ${match[1]}`);
-          return match[1];
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.log(`Direct handle method failed: ${error.message}`);
-      return null;
-    }
   };
 
   const parseChannelInput = (input) => {
@@ -115,6 +85,13 @@ function App() {
       return { type: "username", value: usernameMatch[1] };
     }
 
+    // Bare username/handle format
+    const bareUsernameMatch = cleanInput.match(/^[a-zA-Z0-9_.-]+$/);
+    if (bareUsernameMatch) {
+      console.log(`Detected: bare username format (${cleanInput})`);
+      return { type: "username", value: cleanInput };
+    }
+
     // Custom URL (/c/ format)
     const customUrlMatch = cleanInput.match(
       /youtube\.com\/c\/([a-zA-Z0-9_-]+)/
@@ -144,7 +121,7 @@ function App() {
   };
 
   // Extract channel ID from YouTube page using CORS proxy
-  const extractChannelIdFromPage = async (url) => {
+  const extractChannelIdFromPage = async (url, signal) => {
     try {
       const corsProxies = [
         `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
@@ -158,7 +135,7 @@ function App() {
       for (const proxyUrl of corsProxies) {
         try {
           console.log(`Trying proxy: ${proxyUrl}`);
-          const response = await fetch(proxyUrl);
+          const response = await fetch(proxyUrl, { signal });
 
           if (proxyUrl.includes("allorigins")) {
             const data = await response.json();
@@ -284,10 +261,42 @@ function App() {
     }
   };
 
+  const resolveChannelIdViaApi = async (type, value, signal) => {
+    const params = new URLSearchParams({ type, value });
+    const response = await fetch(`/api/resolve-channel?${params.toString()}`, {
+      signal,
+    });
+    let data = null;
+
+    try {
+      data = await response.json();
+    } catch {
+      // Vite dev serves index.html for unknown routes, so fall back locally.
+    }
+
+    if (!response.ok) {
+      throw new Error(data?.error || "Channel resolver API is unavailable");
+    }
+
+    if (!data?.channelId) {
+      throw new Error("Channel resolver API did not return a channel ID");
+    }
+
+    console.log(`API resolver succeeded via ${data.method}: ${data.channelId}`);
+    return data.channelId;
+  };
+
   // Get the channel ID
-  const resolveChannelId = async (type, value) => {
+  const resolveChannelId = async (type, value, signal) => {
     if (type === "channelId") {
       return value;
+    }
+
+    try {
+      return await resolveChannelIdViaApi(type, value, signal);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      console.log(`API resolver failed, using browser fallback: ${error.message}`);
     }
 
     // @username extraction
@@ -299,9 +308,10 @@ function App() {
         const directUrl = `https://www.youtube.com/@${username}`;
         console.log(`Trying direct @username approach: ${directUrl}`);
 
-        const channelId = await extractChannelIdFromPage(directUrl);
+        const channelId = await extractChannelIdFromPage(directUrl, signal);
         return channelId;
       } catch (error) {
+        if (signal?.aborted) throw error;
         console.log(`Direct @username approach failed: ${error.message}`);
 
         // Backup methods to find channel ID
@@ -315,9 +325,10 @@ function App() {
         for (const altUrl of altUrls) {
           try {
             console.log(`Trying alternative URL: ${altUrl}`);
-            const channelId = await extractChannelIdFromPage(altUrl);
+            const channelId = await extractChannelIdFromPage(altUrl, signal);
             return channelId;
           } catch (e) {
+            if (signal?.aborted) throw e;
             console.log(`Alternative URL failed: ${altUrl}`, e.message);
             continue;
           }
@@ -338,9 +349,10 @@ function App() {
       }
 
       console.log(`Attempting to extract from: ${urlToFetch}`);
-      const channelId = await extractChannelIdFromPage(urlToFetch);
+      const channelId = await extractChannelIdFromPage(urlToFetch, signal);
       return channelId;
     } catch (error) {
+      if (signal?.aborted) throw error;
       console.log(`URL extraction failed for ${value}:`, error.message);
       throw new Error(
         `Could not resolve channel ID from ${value}. Please try using a direct channel URL (youtube.com/channel/UC...) or channel ID.`
@@ -365,37 +377,12 @@ function App() {
     return null;
   };
 
-  // Backup RSS method to find channel ID
-  const tryRSSFeedMethod = async (username) => {
-    try {
-      const rssUrl = `https://www.youtube.com/feeds/videos.xml?user=${username}`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
-        rssUrl
-      )}`;
-
-      console.log(`Trying RSS feed method for: ${username}`);
-      const response = await fetch(proxyUrl);
-      const data = await response.json();
-
-      if (data.contents) {
-        const channelMatch = data.contents.match(
-          /channel_id=(UC[a-zA-Z0-9_-]{22})/
-        );
-        if (channelMatch) {
-          console.log(`RSS method found channel ID: ${channelMatch[1]}`);
-          return channelMatch[1];
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.log(`RSS feed method failed: ${error.message}`);
-      return null;
-    }
-  };
-
   // Gnerate playlist button
   const handleGenerate = async () => {
+    if (isLoading) {
+      return;
+    }
+
     if (!channelInput.trim()) {
       toast.error(
         "Please enter a YouTube channel URL, @username, or channel ID"
@@ -403,7 +390,10 @@ function App() {
       return;
     }
 
+    const extractionController = new AbortController();
+    extractionControllerRef.current = extractionController;
     setIsLoading(true);
+    setPlaylistUrl("");
 
     try {
       console.log(`Input received: ${channelInput}`);
@@ -416,40 +406,12 @@ function App() {
         );
       }
 
-      if (parsedInput.type === "username") {
-        const username = parsedInput.value;
-
-        // Direct handle method
-        const directChannelId = await tryDirectHandleMethod(username);
-        if (directChannelId) {
-          const playlist = generatePlaylistUrl(directChannelId);
-          if (playlist) {
-            setPlaylistUrl(playlist);
-            toast.success(
-              "Playlist URL generated successfully using direct method!"
-            );
-            return;
-          }
-        }
-
-        // Backup RSS method
-        const rssChannelId = await tryRSSFeedMethod(username);
-        if (rssChannelId) {
-          const playlist = generatePlaylistUrl(rssChannelId);
-          if (playlist) {
-            setPlaylistUrl(playlist);
-            toast.success(
-              "Playlist URL generated successfully using RSS method!"
-            );
-            return;
-          }
-        }
-      }
-
       const channelId = await resolveChannelId(
         parsedInput.type,
-        parsedInput.value
+        parsedInput.value,
+        extractionController.signal
       );
+      if (extractionController.signal.aborted) return;
       console.log(`Resolved channel ID: ${channelId}`);
 
       const playlist = generatePlaylistUrl(channelId);
@@ -462,12 +424,27 @@ function App() {
       setPlaylistUrl(playlist);
       toast.success("Playlist URL generated successfully!");
     } catch (error) {
+      if (extractionController.signal.aborted) {
+        console.log("Extraction cancelled");
+        return;
+      }
+
       console.error("Generation error:", error);
       toast.error(error.message);
       setPlaylistUrl("");
     } finally {
-      setIsLoading(false);
+      if (extractionControllerRef.current === extractionController) {
+        extractionControllerRef.current = null;
+        setIsLoading(false);
+      }
     }
+  };
+
+  const handleCancelExtraction = () => {
+    extractionControllerRef.current?.abort();
+    extractionControllerRef.current = null;
+    setIsLoading(false);
+    toast("Extraction cancelled");
   };
 
   // Copy URL to clipboard
@@ -475,7 +452,7 @@ function App() {
     try {
       await navigator.clipboard.writeText(playlistUrl);
       toast.success("URL copied to clipboard!");
-    } catch (error) {
+    } catch {
       toast.error("Failed to copy URL");
     }
   };
@@ -593,13 +570,26 @@ function App() {
               />
             </div>
 
-            <button
-              onClick={handleGenerate}
-              disabled={isLoading || !channelInput.trim()}
-              className="generate-btn"
-            >
-              {isLoading ? "Extracting Channel ID..." : "Generate Playlist"}
-            </button>
+            <div className="generate-actions">
+              <button
+                onClick={handleGenerate}
+                disabled={isLoading || !channelInput.trim()}
+                className="generate-btn"
+              >
+                {isLoading ? "Extracting Channel ID..." : "Generate Playlist"}
+              </button>
+
+              {isLoading && (
+                <button
+                  onClick={handleCancelExtraction}
+                  className="cancel-btn"
+                  aria-label="Cancel extraction"
+                >
+                  <X size={18} />
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
 
           {playlistUrl && (
@@ -638,13 +628,13 @@ function App() {
               <h4>Examples of accepted formats:</h4>
               <ul>
                 <li>
-                  <strong>Channel ID:</strong> UC4QobU6STFB0P71PMvOGN5A
+                  <strong>Username:</strong> jawed or @jawed
                 </li>
                 <li>
                   <strong>Channel URL:</strong> https://www.youtube.com/@jawed
                 </li>
                 <li>
-                  <strong>@Username:</strong> @jawed
+                  <strong>Channel ID:</strong> UC4QobU6STFB0P71PMvOGN5A
                 </li>
               </ul>
               <p>
@@ -662,11 +652,6 @@ function App() {
                 </a>
               </p>
             </div>
-            <p>
-              <strong>Note:</strong> This tool uses web scraping to extract
-              channel information. Providing the channel ID is the fastest way
-              to generate the playlist link.
-            </p>
           </footer>
         </div>
 

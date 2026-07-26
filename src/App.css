@@ -260,8 +260,14 @@ body {
   line-height: 1.4;
 }
 
+.generate-actions {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
 .generate-btn {
-  width: 100%;
+  flex: 1;
   padding: 18px;
   background: linear-gradient(135deg, var(--youtube-red) 0%, #cc0000 100%);
   color: white;
@@ -291,6 +297,37 @@ body {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+.cancel-btn {
+  min-width: 132px;
+  padding: 18px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 2px solid var(--border-medium);
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cancel-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--error);
+  color: var(--error);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(255, 68, 68, 0.18);
+}
+
+.cancel-btn:active {
+  transform: scale(0.98);
 }
 
 .result-section {
@@ -472,7 +509,15 @@ body {
     flex-direction: column;
   }
 
+  .generate-actions {
+    flex-direction: column;
+  }
+
   .action-buttons button {
+    min-width: auto;
+  }
+
+  .cancel-btn {
     min-width: auto;
   }
 }
